@@ -15,13 +15,52 @@
 #include <fstream>
 #include <iostream>
 #include <openssl/md5.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <string.h>
+#include <arpa/inet.h>
+#include <thread>
+#include <boost/thread/thread.hpp>
+#include <boost/bind.hpp>
 
 const int PAGE_SIZE = 4096*256;
+std::vector<int> conndfd(3);
 enum StateFile { initFileNum, initFileMD5, sendBlock, sendEnd, sendFinish, GG };
 StateFile State = initFileNum;
 
 Md::Fileproxy g_File;
 std::string g_FileMD5;
+
+void setTcpNoDelay(int sockfd_, bool on)
+{
+  int optval = on ? 1 : 0;
+  ::setsockopt(sockfd_, IPPROTO_TCP, TCP_NODELAY,
+               &optval, sizeof optval);
+}
+
+void setKeepAlive(int sockfd_, bool on)
+{
+  int optval = on ? 1 : 0;
+  ::setsockopt(sockfd_, SOL_SOCKET, SO_KEEPALIVE,
+               &optval, static_cast<socklen_t>(sizeof optval));
+}
+
+inline int mySocket(int PORT)
+{
+    int conndfd;
+    struct sockaddr_in serverAddr;
+    memset(&serverAddr,0,sizeof(serverAddr));
+    serverAddr.sin_family=AF_INET;
+    serverAddr.sin_addr.s_addr=inet_addr("127.0.0.1");
+    serverAddr.sin_port=htons(PORT);
+    conndfd=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);
+    setTcpNoDelay(conndfd, true);
+    setKeepAlive(conndfd, true);
+    connect(conndfd,(struct sockaddr*)&serverAddr,sizeof(serverAddr));
+    return conndfd;
+}
 
 inline std::string getstringMD5(std::string str)
 {
@@ -60,8 +99,6 @@ void onConnection(const Reactor::TcpConnectionPtr& conn)
     printf("connection [%s] is down\n", conn->name().c_str());
   }
 }
-
-
 
 void onMessage(const Reactor::TcpConnectionPtr& conn,
                Reactor::Buffer* buf)
@@ -130,25 +167,30 @@ void onMessage(const Reactor::TcpConnectionPtr& conn,
       if(md5 == g_File.getBlockFileMD5(blockid, g_FileMD5)) 
       {
         int filelocation = convertMD5toInt(md5)%3;
+        ::write(conndfd[filelocation], inputstr.data(), inputstr.size());
+        /*
         std::ofstream f_out;
         std::string filename;
         if(filelocation == 0)
         {
-          filename = "../saveFile_0/" + md5 + ".txt";
+          ::write(conndfd[0], inputstr.data(), inputstr.size());
+          //filename = "../saveFile_0/" + md5 + ".txt";
         }
         else if(filelocation == 1)
         {
-          filename = "../saveFile_1/" + md5 + ".txt";
+          ::write(conndfd[1], inputstr.data(), inputstr.size());
+          //filename = "../saveFile_1/" + md5 + ".txt";
         }
         else
         {
-          filename = "../saveFile_2/" + md5 + ".txt";
+          ::write(conndfd[2], inputstr.data(), inputstr.size());
+          //filename = "../saveFile_2/" + md5 + ".txt";
         }
         
-        f_out.open(filename, std::ios::out | std::ios::app); 
-        f_out << inputstr;
-        f_out.close();
-        
+        //f_out.open(filename, std::ios::out | std::ios::app); 
+        //f_out << inputstr;
+        //f_out.close();
+        */
         g_File.setFileuploadId(g_FileMD5, blockid);
         std::cout << "seccess" <<std::endl;
       }
@@ -184,5 +226,10 @@ int main(int argc, char* argv[])
     server.setThreadNum(atoi(argv[1]));
   } 
   server.start();
+
+  conndfd[0] = mySocket(9982);
+  conndfd[1] = mySocket(9983);
+  conndfd[2] = mySocket(9984);
+
   loop.loop();
 }

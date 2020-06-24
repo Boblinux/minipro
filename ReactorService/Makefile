@@ -14,7 +14,7 @@ CC = g++
 CFLAGS = -std=c++11 -g -Wall -I${DIR_INC}
 
 ${BIN_TARGET}:${OBJ}
-	$(CC) -pthread -Wl,--no-as-needed -lssl -lcrypto $(OBJ)  -o $@
+	$(CC) -pthread -Wl,--no-as-needed -lssl -lcrypto -lboost_system  -lboost_thread $(OBJ)  -o $@
 
 ${DIR_OBJ}/%.o:${DIR_SRC}/%.cc
 	$(CC) $(CFLAGS) -c  $< -o $@ 

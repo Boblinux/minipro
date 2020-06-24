@@ -10,6 +10,7 @@
 #include <sys/mman.h>
 #include <string.h>
 #include <arpa/inet.h>
+#include <netinet/tcp.h>
 #include <string>
 #include <iostream>
 #include <openssl/md5.h>
@@ -21,6 +22,35 @@
 #define BUFFERSIZE              1024*1024 
 
 using namespace Md;
+
+void setTcpNoDelay(int sockfd_, bool on)
+{
+  int optval = on ? 1 : 0;
+  ::setsockopt(sockfd_, IPPROTO_TCP, TCP_NODELAY,
+               &optval, sizeof optval);
+}
+
+void setKeepAlive(int sockfd_, bool on)
+{
+  int optval = on ? 1 : 0;
+  ::setsockopt(sockfd_, SOL_SOCKET, SO_KEEPALIVE,
+               &optval, static_cast<socklen_t>(sizeof optval));
+}
+
+inline int mySocket()
+{
+    int conndfd;
+    struct sockaddr_in serverAddr;
+    memset(&serverAddr,0,sizeof(serverAddr));
+    serverAddr.sin_family=AF_INET;
+    serverAddr.sin_addr.s_addr=inet_addr("127.0.0.1");
+    serverAddr.sin_port=htons(PORT);
+    conndfd=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);
+    setTcpNoDelay(conndfd, true);
+    setKeepAlive(conndfd, true);
+    connect(conndfd,(struct sockaddr*)&serverAddr,sizeof(serverAddr));
+    return conndfd;
+}
 
 // Get the size of the file by its file descriptor
 unsigned long getFileSize(int fd) {
@@ -37,15 +67,7 @@ int main(int argc, char *argv[]) {
     static char buffer[BUFFERSIZE];
     bzero(buffer, sizeof(buffer)); 
     int n;
-
-    struct sockaddr_in serverAddr;
-    memset(&serverAddr,0,sizeof(serverAddr));
-    serverAddr.sin_family=AF_INET;
-    serverAddr.sin_addr.s_addr=inet_addr("127.0.0.1");
-    serverAddr.sin_port=htons(PORT);
-    int conndfd=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP); //客户端 创建
-    connect(conndfd,(struct sockaddr*)&serverAddr,sizeof(serverAddr)); //客户端建立连接
-
+    int conndfd = mySocket();
     int fd = open(argv[1], O_RDONLY);
     unsigned long file_size = getFileSize(fd);
     Md::File File(fd, conndfd, file_size); 
