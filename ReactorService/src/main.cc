@@ -167,7 +167,9 @@ void onMessage(const Reactor::TcpConnectionPtr& conn,
       if(md5 == g_File.getBlockFileMD5(blockid, g_FileMD5)) 
       {
         int filelocation = convertMD5toInt(md5)%3;
-        ::write(conndfd[filelocation], inputstr.data(), inputstr.size());
+        ::send(conndfd[filelocation], &bsbe32, 4, MSG_NOSIGNAL);
+        ::send(conndfd[filelocation], md5.data(), 32, MSG_NOSIGNAL);
+        ::send(conndfd[filelocation], inputstr.data(), blocksize, MSG_NOSIGNAL);
         /*
         std::ofstream f_out;
         std::string filename;
