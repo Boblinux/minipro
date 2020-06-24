@@ -76,16 +76,17 @@ int main(int argc, char *argv[]) {
 
     File.sendFileinfo(); //1、seng Fileinfo 4+32 byte
 
-    if((n = read(conndfd, buffer, BUFFERSIZE)) > 0)
+    if((n = recv(conndfd, buffer, BUFFERSIZE, MSG_NOSIGNAL)) > 0)
     {
         std::string idstr = buffer;
+        bzero(buffer, sizeof(buffer)); 
         std::cout << idstr << std::endl;
         if(idstr == "success")
         {
             close(conndfd); 
             return 0;  //5、success
         }
-
+        
         std::string::size_type position = idstr.find(':');
         if(position != idstr.npos)
         {
@@ -95,12 +96,11 @@ int main(int argc, char *argv[]) {
         {
             File.sendFileBlockMD5info(); //3、else sendFileBlockMD5info 
         }
-        bzero(buffer, sizeof(buffer)); 
     }
 
     File.sendFileBlock();   //4、sendFileBlock
-    
-    while((n = read(conndfd, buffer, BUFFERSIZE)) > 0)
+
+    while((n = recv(conndfd, buffer, BUFFERSIZE, MSG_NOSIGNAL)) > 0)
     {
         std::cout << buffer << std::endl;
         std::string idstr = buffer;

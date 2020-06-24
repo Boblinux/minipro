@@ -27,7 +27,7 @@ File(int fd, int conn, unsigned long fileSize)
       fileSize_(fileSize),
       md5_(fd_, fileSize_, 0),
       blockNum_((unsigned long)(fileSize_ % PAGE_SIZE == 0 ? fileSize_/PAGE_SIZE:fileSize_/PAGE_SIZE+1)),
-      uploadId_(std::vector<bool>(blockNum_, true)),
+      uploadId_(std::vector<bool>(blockNum_, false)),
       downloadId_(std::vector<bool>(blockNum_, false))
 {
     initFile();
@@ -76,7 +76,6 @@ void sendFileBlockMD5info()
     {
         BlockFileList_[i]->sendBlockMD5();
     }
-    //write(conn_, "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", 32);
 }
 
 void sendFileBlock()
@@ -88,9 +87,6 @@ void sendFileBlock()
             BlockFileList_[i]->sendBlockFile();
         }
     }
-    uint32_t finishflag = 0; //send finishflag
-    uint32_t nbe = htonl(finishflag);
-    write(conn_, &nbe, 4);
 }
 
 void updateuploadId(std::string idstr)
@@ -102,7 +98,7 @@ void updateuploadId(std::string idstr)
         if(idstr[i] == ':')
         {
             tmp = idstr.substr(start, i-start);
-            uploadId_[atoi(tmp.data())] = false;
+            uploadId_[atoi(tmp.data())] = true;
             start = i+1;
         }
     }

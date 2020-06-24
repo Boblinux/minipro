@@ -49,7 +49,7 @@ std::string getuploadId()
     std::string idstr;
     for(int i=0; i<(int)blockNum_; i++)
     {
-      if(uploadId_[i] == false)
+      if(uploadId_[i] == true) //false->true
       {
         idstr += std::to_string(i) + ':';
       }

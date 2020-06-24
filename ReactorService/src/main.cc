@@ -110,10 +110,10 @@ void onMessage(const Reactor::TcpConnectionPtr& conn,
     int32_t be32 = *static_cast<const int32_t*>(tmp);
     int blockNum = ::ntohl(be32);
     buf->retrieve(4);
-    std::cout << blockNum << '\n';
+    //std::cout << blockNum << '\n';
     
     std::string FileMD5 = buf->readAsBlock(32);
-    std::cout << FileMD5 << '\n';
+    //std::cout << FileMD5 << '\n';
     g_FileMD5 = FileMD5;
     
     if(!g_File.lsFile(FileMD5))
@@ -141,8 +141,9 @@ void onMessage(const Reactor::TcpConnectionPtr& conn,
   if(State == initFileMD5 && buf->readableBytes() >= 32*g_File.getFileNum(g_FileMD5))
   {
     inputstr = buf->readAsBlock(32*g_File.getFileNum(g_FileMD5));
-    std::cout << inputstr << '\n';
+    //std::cout << inputstr << '\n';
     g_File.setFileMD5(g_FileMD5, inputstr);
+    buf->retrieveAll();
     State = sendBlock;
   }
   
@@ -170,29 +171,6 @@ void onMessage(const Reactor::TcpConnectionPtr& conn,
         ::send(conndfd[filelocation], &bsbe32, 4, MSG_NOSIGNAL);
         ::send(conndfd[filelocation], md5.data(), 32, MSG_NOSIGNAL);
         ::send(conndfd[filelocation], inputstr.data(), blocksize, MSG_NOSIGNAL);
-        /*
-        std::ofstream f_out;
-        std::string filename;
-        if(filelocation == 0)
-        {
-          ::write(conndfd[0], inputstr.data(), inputstr.size());
-          //filename = "../saveFile_0/" + md5 + ".txt";
-        }
-        else if(filelocation == 1)
-        {
-          ::write(conndfd[1], inputstr.data(), inputstr.size());
-          //filename = "../saveFile_1/" + md5 + ".txt";
-        }
-        else
-        {
-          ::write(conndfd[2], inputstr.data(), inputstr.size());
-          //filename = "../saveFile_2/" + md5 + ".txt";
-        }
-        
-        //f_out.open(filename, std::ios::out | std::ios::app); 
-        //f_out << inputstr;
-        //f_out.close();
-        */
         g_File.setFileuploadId(g_FileMD5, blockid);
         std::cout << "seccess" <<std::endl;
       }

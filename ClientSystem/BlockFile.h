@@ -50,18 +50,18 @@ void sendBlockFile()
 {
     char *bockBuffer = (char*)mmap(0, blockSize_, PROT_READ, MAP_SHARED, fd_, offset_);
     uint32_t bsbe = htonl(blockSize_);
-    write(conn_, &bsbe, 4); //send blockSize
+    ::send(conn_, &bsbe, 4, MSG_NOSIGNAL); //send blockSize
     
     uint32_t idbe = htonl(id_); //send id
-    write(conn_, &idbe, 4);
+    ::send(conn_, &idbe, 4, MSG_NOSIGNAL);
 
-    write(conn_, bockBuffer, blockSize_);   //send block
+    ::send(conn_, bockBuffer, blockSize_, MSG_NOSIGNAL);   //send block
     munmap(bockBuffer, blockSize_); 
 }
 
 void sendBlockMD5()
 {
-    write(conn_, md5_.getMD5().data(), 32);
+    ::send(conn_, md5_.getMD5().data(), 32, MSG_NOSIGNAL);
 }
 
 private:
