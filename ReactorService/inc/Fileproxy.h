@@ -8,7 +8,6 @@
 #include <map>
 #include <stdlib.h>
 #include <unistd.h>
-//#include "MD5.h"
 
 namespace Md
 {
@@ -18,12 +17,18 @@ class FileValue
 
 public:
 
-FileValue(unsigned long blockNum)
-: blockNum_(blockNum)
+FileValue(unsigned long blockNum, std::string md5)
+: blockNum_(blockNum),
+  fileMD5_(md5)
 {
     BlockFileMD5_ = std::vector<std::string>(blockNum);
     uploadId_ = std::vector<bool>(blockNum, false);
     downloadId_ = std::vector<bool>(blockNum, false);
+}
+
+void setFileMD5(std::string md5)
+{
+    fileMD5_ = md5;
 }
 
 void setBlockFileMD5(std::string md5)
@@ -62,6 +67,11 @@ std::string getBlockFileMD5(int id)
     return BlockFileMD5_[id];
 }
 
+std::string getFileMD5()
+{
+    return fileMD5_;
+}
+
 unsigned long getFileNum()
 {
     return blockNum_;
@@ -88,6 +98,7 @@ bool lsFileFinish()
 
 private:
     unsigned long               blockNum_;
+    std::string                 fileMD5_;
     std::vector<std::string>    BlockFileMD5_;
     std::vector<bool>           uploadId_; 
     std::vector<bool>           downloadId_;  
@@ -107,35 +118,45 @@ Fileproxy()
 {
 }
 
-void addFile(unsigned long blockNum, std::string FileMD5)
+void addFile(std::string FileName, unsigned long blockNum, std::string FileMD5)
 {
-    FileMap_[FileMD5] = new FileValue(blockNum);
+    FileMap_[FileName] = new FileValue(blockNum, FileMD5);
 }
    
-std::string getFileidString(std::string FileMD5)
+std::string getFileidString(std::string FileName)
 {
-    return FileMap_[FileMD5]->getuploadId();
+    return FileMap_[FileName]->getuploadId();
 }
 
-void setFileMD5(std::string FileMD5, std::string MD5string)
+void setFileMD5(std::string FileName, std::string MD5)
 {
-    FileMap_[FileMD5]->setBlockFileMD5(MD5string);
+    FileMap_[FileName]->setFileMD5(MD5);
 }
 
-void setFileuploadId(std::string FileMD5, int id)
+void setBlockFileMD5(std::string FileName, std::string MD5string)
 {
-    FileMap_[FileMD5]->setuploadId(id);
+    FileMap_[FileName]->setBlockFileMD5(MD5string);
 }
 
-std::string getBlockFileMD5(int id, std::string FileMD5)
+void setFileuploadId(std::string FileName, int id)
 {
-    return FileMap_[FileMD5]->getBlockFileMD5(id);
+    FileMap_[FileName]->setuploadId(id);
 }
 
-bool lsFile(std::string FileMD5)
+std::string getBlockFileMD5(int id, std::string FileName)
+{
+    return FileMap_[FileName]->getBlockFileMD5(id);
+}
+
+std::string getFileMD5(std::string FileName)
+{
+    return FileMap_[FileName]->getFileMD5();
+}
+
+bool lsFile(std::string FileName)
 {
     std::map<std::string, FileValue *>::iterator it;
-    it = FileMap_.find(FileMD5);
+    it = FileMap_.find(FileName);
     if(it != FileMap_.end())
     {
         return true;
@@ -143,14 +164,14 @@ bool lsFile(std::string FileMD5)
     return false;
 }
 
-bool lsFileFinish(std::string FileMD5)
+bool lsFileFinish(std::string FileName)
 {
-    return FileMap_[FileMD5]->lsFileFinish();
+    return FileMap_[FileName]->lsFileFinish();
 }
 
-unsigned long getFileNum(std::string FileMD5)
+unsigned long getFileNum(std::string FileName)
 {
-    return FileMap_[FileMD5]->getFileNum();
+    return FileMap_[FileName]->getFileNum();
 }
 
 private:

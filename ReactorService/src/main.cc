@@ -20,6 +20,8 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <string.h>
+#include <inttypes.h>
+#include <algorithm>
 #include <arpa/inet.h>
 #include <thread>
 #include <boost/thread/thread.hpp>
@@ -27,11 +29,11 @@
 
 const int PAGE_SIZE = 4096*256;
 std::vector<int> conndfd(3);
-enum StateFile { initFileNum, initFileMD5, sendBlock, sendEnd, sendFinish, GG };
-StateFile State = initFileNum;
+enum StatuFile { statu1, statu2, statu3, statu4 };
+StatuFile Statu = statu1;
 
 Md::Fileproxy g_File;
-std::string g_FileMD5;
+std::string g_FileName;
 
 void setTcpNoDelay(int sockfd_, bool on)
 {
@@ -62,6 +64,20 @@ inline int mySocket(int PORT)
     return conndfd;
 }
 
+inline std::string getFileName(std::string FileName)
+{
+  int i=FileName.size()-1;
+  for( ; i>=0; i--)
+  {
+    if(FileName[i] == '/')
+    {
+      break;
+    }
+  }
+  std::cout << FileName.substr(i+1, FileName.size()-i-1) << '\n';
+  return FileName.substr(i+1, FileName.size()-i-1);
+}
+
 inline std::string getstringMD5(std::string str)
 {
   unsigned char tmp1[MD5_DIGEST_LENGTH];
@@ -87,73 +103,93 @@ inline int convertMD5toInt(std::string md5)
   return res;
 }
 
-void onConnection(const Reactor::TcpConnectionPtr& conn)
-{
-  if (conn->connected())
-  {
-    printf("new connection [%s] from %s\n", conn->name().c_str(), conn->peerAddress().toHostPort().c_str());
-    State = initFileNum;
-  }
-  else
-  {
-    printf("connection [%s] is down\n", conn->name().c_str());
-  }
-}
-
-void onMessage(const Reactor::TcpConnectionPtr& conn,
-               Reactor::Buffer* buf)
-{
-  std::string inputstr;
-  if(State == initFileNum && buf->readableBytes() >= 36)
+void initFileNumber(const Reactor::TcpConnectionPtr& conn,
+                    Reactor::Buffer* buf)
+{ 
+  while(buf->readableBytes() >= 4)
   {
     const void *tmp = buf->peek();
     int32_t be32 = *static_cast<const int32_t*>(tmp);
-    int blockNum = ::ntohl(be32);
-    buf->retrieve(4);
-    //std::cout << blockNum << '\n';
+    size_t fileNameMD5Len = ::ntohl(be32);
+    //std::cout << fileNameMD5Len << '\n';
     
-    std::string FileMD5 = buf->readAsBlock(32);
-    //std::cout << FileMD5 << '\n';
-    g_FileMD5 = FileMD5;
-    
-    if(!g_File.lsFile(FileMD5))
+    if(buf->readableBytes() >= 8+fileNameMD5Len)
     {
-      g_File.addFile(blockNum, FileMD5);
-      conn->send("ACK");
-      State = initFileMD5;
-    }
-    else
-    {
-      if(g_File.lsFileFinish(g_FileMD5))
+      buf->retrieve(4);
+      tmp = buf->peek();
+      be32 = *static_cast<const int32_t*>(tmp);
+      size_t blockNum = ::ntohl(be32);
+      buf->retrieve(4);
+      //std::cout << blockNum << '\n';
+
+      std::string FileNameMD5 = buf->readAsBlock(fileNameMD5Len);
+      g_FileName = getFileName(FileNameMD5.substr(0,fileNameMD5Len-32));
+      
+
+      
+      if(!g_File.lsFile(g_FileName))
       {
-        State = sendEnd;
-        conn->send("success");
+        g_File.addFile(g_FileName, blockNum, FileNameMD5.substr(fileNameMD5Len-32));
+        int fileNameLen = g_FileName.size();
+        uint32_t nbe = htonl(fileNameLen);
+        ::send(conndfd[0], &nbe, 4, MSG_NOSIGNAL); //send fileNameLen
+        ::send(conndfd[1], &nbe, 4, MSG_NOSIGNAL); //send fileNameLen
+        ::send(conndfd[2], &nbe, 4, MSG_NOSIGNAL); //send fileNameLen
+
+        ::send(conndfd[0], g_FileName.data(), fileNameLen, MSG_NOSIGNAL);
+        ::send(conndfd[1], g_FileName.data(), fileNameLen, MSG_NOSIGNAL);
+        ::send(conndfd[2], g_FileName.data(), fileNameLen, MSG_NOSIGNAL);
+
+        //std::cout << g_FileName << '\n';
+        //std::cout << FileNameMD5.substr(fileNameMD5Len-32) << '\n';
+        conn->send("ACK");
+        Statu = statu2;
       }
       else
       {
-        std::string MD5string = g_File.getFileidString(FileMD5);
-        conn->send(MD5string);
+        if(g_File.lsFileFinish(g_FileName))
+        {
+          Statu = statu4;
+          conn->send("success");
+        }
+        else
+        {
+          std::string MD5string = g_File.getFileidString(g_FileName);
+          conn->send(MD5string);
+        }
+        Statu = statu3;
       }
-      State = sendBlock;
     }
+    else
+    {
+      break;
+    }
+    
   }
+}
 
-  if(State == initFileMD5 && buf->readableBytes() >= 32*g_File.getFileNum(g_FileMD5))
+void initFileMD5(const Reactor::TcpConnectionPtr& conn,
+                 Reactor::Buffer* buf)
+{
+  if(buf->readableBytes() >= 32*g_File.getFileNum(g_FileName))
   {
-    inputstr = buf->readAsBlock(32*g_File.getFileNum(g_FileMD5));
+    std::string inputstr = buf->readAsBlock(32*g_File.getFileNum(g_FileName));
+    
+    g_File.setBlockFileMD5(g_FileName, inputstr);
     //std::cout << inputstr << '\n';
-    g_File.setFileMD5(g_FileMD5, inputstr);
-    buf->retrieveAll();
-    State = sendBlock;
+    Statu = statu3;
   }
-  
-  while(State == sendBlock && buf->readableBytes() >= 4)
+}
+
+void sendBlock(const Reactor::TcpConnectionPtr& conn,
+               Reactor::Buffer* buf)
+{
+  while(Statu == statu3 && buf->readableBytes() >= 4)
   {
     const void *tmp2 = buf->peek();
     int32_t bsbe32 = *static_cast<const int32_t*>(tmp2);
     int32_t blocksize = ::ntohl(bsbe32);
     //std::cout << blocksize << '\n';
-    
     if(buf->readableBytes() >= 8+static_cast<size_t>(blocksize))
     {
       buf->retrieve(4);
@@ -161,17 +197,17 @@ void onMessage(const Reactor::TcpConnectionPtr& conn,
       int32_t idbe32 = *static_cast<const int32_t*>(tmp1);
       int32_t blockid = ::ntohl(idbe32);
       buf->retrieve(4);
-      std::cout << blockid << '\n';
+      //std::cout << blockid << '\n';
       
-      inputstr = buf->readAsBlock(blocksize);
+      std::string inputstr = buf->readAsBlock(blocksize);
       std::string md5 = getstringMD5(inputstr);
-      if(md5 == g_File.getBlockFileMD5(blockid, g_FileMD5)) 
+      if(md5 == g_File.getBlockFileMD5(blockid, g_FileName)) 
       {
         int filelocation = convertMD5toInt(md5)%3;
         ::send(conndfd[filelocation], &bsbe32, 4, MSG_NOSIGNAL);
-        ::send(conndfd[filelocation], md5.data(), 32, MSG_NOSIGNAL);
-        ::send(conndfd[filelocation], inputstr.data(), blocksize, MSG_NOSIGNAL);
-        g_File.setFileuploadId(g_FileMD5, blockid);
+        md5 += inputstr;
+        ::send(conndfd[filelocation], md5.data(), 32+blocksize, MSG_NOSIGNAL);
+        g_File.setFileuploadId(g_FileName, blockid);
         std::cout << "seccess" <<std::endl;
       }
       else
@@ -183,14 +219,49 @@ void onMessage(const Reactor::TcpConnectionPtr& conn,
     {
       break;
     }
-    if(g_File.lsFileFinish(g_FileMD5))
+    if(g_File.lsFileFinish(g_FileName))
     {
-      State = sendEnd;
+      Statu = statu4;
       conn->send("success");
       break;
     }
   }
-  
+}
+
+void upLoadFile(const Reactor::TcpConnectionPtr& conn,
+                Reactor::Buffer* buf, StatuFile Status)
+{
+  switch(Status)
+  {
+    case statu1:  initFileNumber(conn, buf); 
+                  break;
+    case statu2:  initFileMD5(conn, buf); 
+                  break;
+    case statu3:  sendBlock(conn, buf); 
+                  break;
+    case statu4:  break;
+  }
+}
+
+void onConnection(const Reactor::TcpConnectionPtr& conn)
+{
+  if (conn->connected())
+  {
+    printf("new connection [%s] from %s\n", conn->name().c_str(), conn->peerAddress().toHostPort().c_str());
+    Statu = statu1;
+  }
+  else
+  {
+    printf("connection [%s] is down\n", conn->name().c_str());
+  }
+}
+
+
+
+void onMessage(const Reactor::TcpConnectionPtr& conn,
+               Reactor::Buffer* buf)
+{
+  upLoadFile(conn, buf, Statu);
 }
 
 int main(int argc, char* argv[])

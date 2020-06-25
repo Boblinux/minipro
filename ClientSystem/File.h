@@ -63,11 +63,18 @@ void initFile()
     }
 }
 
-void sendFileinfo()
+void sendFileinfo(std::string fileName)
 {
+    fileName += md5_.getMD5();
+    int fileNameMd5Len = fileName.size();
+    uint32_t be = htonl(fileNameMd5Len);
+    ::send(conn_, &be, 4, MSG_NOSIGNAL); //send fileNameMd5Len
+    
     uint32_t nbe = htonl(blockNum_);
-    write(conn_, &nbe, 4);
-    write(conn_, md5_.getMD5().data(), 32);
+    write(conn_, &nbe, 4); //send blockNum
+
+    ::send(conn_, fileName.data(), fileNameMd5Len, MSG_NOSIGNAL);  //send fileNameMd5
+    //write(conn_, md5_.getMD5().data(), 32);
 }
 
 void sendFileBlockMD5info()

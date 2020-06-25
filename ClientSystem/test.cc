@@ -74,7 +74,7 @@ int main(int argc, char *argv[]) {
     int blockNum = File.getFileBlockNum();
     std::cout << "File num: " << blockNum << " File MD5: "<< File.getFileMD5()  << std::endl;
 
-    File.sendFileinfo(); //1、seng Fileinfo 4+32 byte
+    File.sendFileinfo(argv[1]); //1、seng Fileinfo
 
     if((n = recv(conndfd, buffer, BUFFERSIZE, MSG_NOSIGNAL)) > 0)
     {

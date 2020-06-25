@@ -25,6 +25,9 @@
 #include <boost/thread/thread.hpp>
 #include <boost/bind.hpp>
 
+std::string g_fileName = "./File/";
+enum StatuFile { statu1, statu2, statu3, statu4 };
+StatuFile statu = statu1;
 inline std::string getstringMD5(std::string str)
 {
   unsigned char tmp1[MD5_DIGEST_LENGTH];
@@ -40,20 +43,31 @@ inline std::string getstringMD5(std::string str)
   return md5;
 }
 
-void onConnection(const Reactor::TcpConnectionPtr& conn)
+void mkfile(const Reactor::TcpConnectionPtr& conn,
+            Reactor::Buffer* buf)
 {
-  if (conn->connected())
+  while(buf->readableBytes() >= 4)
   {
-    printf("new connection [%s] from %s\n", conn->name().c_str(), conn->peerAddress().toHostPort().c_str());
-  }
-  else
-  {
-    printf("connection [%s] is down\n", conn->name().c_str());
+    const void *tmp = buf->peek();
+    int32_t be32 = *static_cast<const int32_t*>(tmp);
+    size_t fileLen = ::ntohl(be32);
+
+    if(buf->readableBytes() >= 4+fileLen)
+    {
+      buf->retrieve(4);
+      g_fileName += buf->readAsBlock(fileLen) + '/';
+      mkdir(g_fileName.c_str(),S_IRUSR | S_IWUSR | S_IXUSR | S_IRWXG | S_IRWXO);
+      statu = statu2;
+    }
+    else
+    {
+      break;
+    }
   }
 }
 int conter = 0;
-void onMessage(const Reactor::TcpConnectionPtr& conn,
-               Reactor::Buffer* buf)
+void saveBlockFile(const Reactor::TcpConnectionPtr& conn,
+                   Reactor::Buffer* buf)
 {
   while(buf->readableBytes() >= 4)
   {
@@ -79,7 +93,7 @@ void onMessage(const Reactor::TcpConnectionPtr& conn,
         std::ofstream f_out;
         std::string filename;
 
-        filename = "./File/" + md5 + ".txt";
+        filename = g_fileName + md5 + ".txt";
         f_out.open(filename, std::ios::out | std::ios::app); 
         f_out << inputstr;
         f_out.close();
@@ -90,8 +104,43 @@ void onMessage(const Reactor::TcpConnectionPtr& conn,
     {
       break;
     }
-    
   }
+}
+
+void upLoad(const Reactor::TcpConnectionPtr& conn,
+            Reactor::Buffer* buf)
+{
+  switch (statu)
+  {
+  case statu1 : mkfile(conn, buf);
+                break;
+  case statu2 : saveBlockFile(conn, buf);
+                break;
+  
+  default:
+    break;
+  }
+}
+
+void onConnection(const Reactor::TcpConnectionPtr& conn)
+{
+  if (conn->connected())
+  {
+    printf("new connection [%s] from %s\n", conn->name().c_str(), conn->peerAddress().toHostPort().c_str());
+    statu = statu1;
+  }
+  else
+  {
+    printf("connection [%s] is down\n", conn->name().c_str());
+  }
+}
+
+void onMessage(const Reactor::TcpConnectionPtr& conn,
+               Reactor::Buffer* buf)
+{
+  upLoad(conn, buf);
+  
+  
 }
 
 int main(int argc, char* argv[])
