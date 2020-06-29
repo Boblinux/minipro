@@ -24,6 +24,7 @@ FileValue(unsigned long blockNum, std::string md5)
     BlockFileMD5_ = std::vector<std::string>(blockNum);
     uploadId_ = std::vector<bool>(blockNum, false);
     downloadId_ = std::vector<bool>(blockNum, false);
+    BlockFile_ = std::vector<std::string>(blockNum);
 }
 
 void setFileMD5(std::string md5)
@@ -89,6 +90,36 @@ bool lsFileFinish()
     return true;
 }
 
+void saveDownloadBlock(int id, std::string BlockContent)
+{
+    BlockFile_[id] = BlockContent;
+    setdownloadId(id);
+
+}
+
+int getidFromMD5(std::string MD5)
+{
+    int i=0;
+    for( ; i<blockNum_; i++)
+    {
+        if(BlockFileMD5_[i] == MD5)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int getBlockFileSize()
+{
+    return BlockFile_.size();
+}
+
+std::string getBlockFile(int id)
+{
+    return BlockFile_[id];
+}
+
 ~FileValue()
 {
     BlockFileMD5_.clear();
@@ -102,6 +133,7 @@ private:
     std::vector<std::string>    BlockFileMD5_;
     std::vector<bool>           uploadId_; 
     std::vector<bool>           downloadId_;  
+    std::vector<std::string>    BlockFile_;
 };
 
 
@@ -174,15 +206,31 @@ unsigned long getFileNum(std::string FileName)
     return FileMap_[FileName]->getFileNum();
 }
 
+void saveDownloadBlock(std::string FileName, int id, std::string BlockContent)
+{
+    FileMap_[FileName]->saveDownloadBlock(id, BlockContent);
+}
+
+int getidFromMD5(std::string FileName, std::string MD5)
+{
+    return FileMap_[FileName]->getidFromMD5(MD5);
+}
+
+int getBlockFileSize(std::string FileName)
+{
+    return FileMap_[FileName]->getBlockFileSize();
+}
+
+std::string getBlockFile(std::string FileName, int id)
+{
+    return FileMap_[FileName]->getBlockFile(id);
+}
+
 private:
     std::map<std::string, FileValue *>        FileMap_;
 };
 
 }; // namespace MD5
-
-
-
-
 
 
 #endif
