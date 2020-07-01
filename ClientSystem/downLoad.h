@@ -5,6 +5,7 @@
 #include <string.h>
 #include <map>
 #include <thread>
+#include <mutex>
 #include <boost/thread/thread.hpp>
 #include <boost/bind.hpp>
 #include "File.h"
@@ -13,133 +14,119 @@
 #include <sys/wait.h>   
 #include <sys/epoll.h>
 
-std::vector<std::string>  BlockContent;
-enum downStatuFile { downstatu1, downstatu2, downstatu3, downstatu4 };
-downStatuFile downStatus = downstatu1;
-std::map<std::string, int> idMD5;
+std::vector<std::string> MD5str;
+std::vector<std::string> blockMD5Num;
+std::vector<std::string> content;
+std::mutex mux;
 
-void recvMD5Block(int conndfd, Reactor::Buffer &buf)
+void remove_dir(const char *dir)
 {
-  while(buf.readableBytes() >= 4)
+	char cur_dir[] = ".";
+	char up_dir[] = "..";
+	char dir_name[128];
+	DIR *dirp;
+	struct dirent *dp;
+	struct stat dir_stat;
+	if ( 0 > stat(dir, &dir_stat) ) {
+		perror("get directory stat error");
+	}
+
+	if ( S_ISREG(dir_stat.st_mode) ) {	
+		remove(dir);
+	} else if ( S_ISDIR(dir_stat.st_mode) ) {	
+		dirp = opendir(dir);
+		while ( (dp=readdir(dirp)) != NULL ) {
+			if ( (0 == strcmp(cur_dir, dp->d_name)) || (0 == strcmp(up_dir, dp->d_name)) ) {
+				continue;
+			}
+			
+			sprintf(dir_name, "%s/%s", dir, dp->d_name);
+			remove_dir(dir_name);  
+		}
+		closedir(dirp);
+
+		rmdir(dir);	
+	} else {
+		perror("unknow file type!");	
+	}
+}
+
+void combinateFile(std::vector<std::string> MD5str, const char *basePath, const char *agrv)
+{
+  DIR *dir;
+  struct dirent *ptr;
+  if ((dir=opendir(basePath)) == NULL)
   {
-    const void *tmp = buf.peek();
-    int32_t be32 = *static_cast<const int32_t*>(tmp);
-    size_t BlockSize = ::ntohl(be32);
-   
-    if(buf.readableBytes() >= 4+BlockSize)
+    perror("Open dir error...");
+    exit(1);
+  }
+  std::string fileName = basePath;
+  while ((ptr=readdir(dir)) != NULL)
+  {
+    if(strcmp(ptr->d_name,".")==0 || strcmp(ptr->d_name,"..")==0)    //current dir OR parrent dir
+      continue;
+    else if(ptr->d_type == 8)    //file
     {
-      buf.retrieve(4);
-      std::cout << BlockSize << '\n';
-      std::string readContent = buf.readAsBlock(BlockSize);
+      std::string Name = ptr->d_name;
       
-      std::cout << readContent.substr(0, 20) << '\n';
-      //std::string md5 = readContent.substr(0,32);
-      //BlockContent[idMD5[md5]] = readContent.substr(0,36);
-      //std::cout << BlockContent[idMD5[md5]] << '\n';
-    }
-    else
-    {
-      break;
-    }
-  }
-}
-
-void recvidMD5(int conndfd, Reactor::Buffer &buf)
-{
-  while(buf.readableBytes() >= 4)
-  {
-    const void *tmp = buf.peek();
-    int32_t be32 = *static_cast<const int32_t*>(tmp);
-    size_t id = ::ntohl(be32);
-    std::cout << id << '\n';
-    
-    if(buf.readableBytes() >= 36)
-    {
-      buf.retrieve(4);
-      std::string MD5 = buf.readAsBlock(32);
-      std::cout << MD5 << '\n';
-      if(MD5 == "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG")
+      std::string file = "./" + fileName +'/'+Name;
+      int fd = open(file.data(),O_RDONLY);
+      if(-1 == fd)
       {
-        BlockContent = std::vector<std::string>(idMD5.size());
-        downStatus = downstatu2;
-        break;
+        perror("ferror");
+        exit(-1);
       }
-      else
+      struct stat fs;
+      fstat(fd, &fs);
+      int n;
+      char Buffer[1024*1024];
+      bzero(Buffer, 1024*1024);
+      std::string tmp = Name.substr(0,32);
+      if((n = read(fd, Buffer, 1024*1024)) == fs.st_size);
       {
-        idMD5[MD5] = id;
+        std::string buf(Buffer, Buffer+n);
+        tmp += buf;
       }
-    }
-    else
-    {
-      break;
+      content.push_back(tmp);
     }
   }
-} 
+  closedir(dir);
+  std::string file = "./" + fileName;
+  remove_dir(file.data());
 
-void call_backfunc(int& conndfd, int& fd, Reactor::Buffer &buf)
-{
-  if(buf.readableBytes() > 0)
+  if(content.size() == MD5str.size())
   {
-    switch(downStatus)
+    int fd = ::open(agrv, O_RDWR | O_CREAT);
+    for(int i=0; i<MD5str.size(); i++)
     {
-      case downstatu1:  recvidMD5(conndfd, buf); 
-                        break;
-      case downstatu2:  recvMD5Block(conndfd, buf); 
-                        break;
-      case downstatu3:  //resvBlockFile(conndfd, downStatus, buf); 
-                        break;
-      case downstatu4:  break;
+      for(int j=0; j<content.size(); j++)
+      {
+        if(MD5str[i] == content[j].substr(0,32))
+        {
+          if(MD5str[i] == getstringMD5(content[j].substr(32)))
+            ::write(fd, content[j].substr(32).data(), content[j].substr(32).size());
+          else
+          {
+            std::cout << MD5str[i] << '\n';
+            std::cout << content[j].size() << '\n';
+            std::cout << content[j].substr(content[j].size()-4) << '\n';
+          }
+        }
+      }
     }
   }
 }
 
-Reactor::Buffer Buf;
-void downLoadFile(int conndfd, int fd)
+bool lsMD5InFile(std::string md5)
 {
-  struct epoll_event cev, cevents[16];  
-  int epfd = epoll_create(16);
-  cev.events = EPOLLIN;  
-  cev.data.fd = conndfd;  
-  if (epoll_ctl(epfd, EPOLL_CTL_ADD, conndfd, &cev) == -1) {  
-    perror("epoll_ctl: listen_sock");  
-    exit(EXIT_FAILURE);  
-  }  
-  sleep(1);
-  ::send(conndfd, "1", 1, MSG_NOSIGNAL); //send blockSize
-
-  while(true)
-  {
-    int nfds = epoll_wait(epfd, cevents, 16, -1);  
-    for(int i=0; i<nfds; ++i)
+    for(int i=0; i<blockMD5Num.size(); i++)
     {
-      if (cevents[i].events & EPOLLIN) 
-      {  
-        Buf.readFd(conndfd);
-        //call_backfunc(conndfd, fd, Buf);
-        int n = Buf.readableBytes();
-        int nn = ::write(fd, Buf.readAsString().data(), n);
-        std::cout<<nn<<'\n';
-        //recvMD5Block(conndfd, Buf);
-
-        cev.events = cevents[i].events | EPOLLOUT;  
-        if (epoll_ctl(epfd, EPOLL_CTL_MOD, conndfd, &cev) == -1)
-        {  
-          perror("epoll_ctl: mod");  
-        }  
-      }
-    } 
-  }   
-}
-
-void downLoad(int conndfd, std::string argv)
-{
-  int fd = open(argv.data(), O_RDWR|O_CREAT);
-  if (-1 == fd)
-  {   
-    printf("Create file Error\n");
-  }   
-  downStatus = downstatu1;
-  downLoadFile(conndfd, fd);
+        if(blockMD5Num[i] == md5)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 void downLoadMD5(int conndfd, std::vector<std::string>& MD5str, std::string argv)
@@ -156,8 +143,6 @@ void downLoadMD5(int conndfd, std::vector<std::string>& MD5str, std::string argv
   Buff.prepend(&bsbe, 4);
   ::send(conndfd, Buff.readAsString().data(), 4+argv.size(), MSG_NOSIGNAL); 
 
-  //::send(conndfd, &bsbe, 4, MSG_NOSIGNAL); //send blockSize
-  //::send(conndfd, argv.data(), argv.size(), MSG_NOSIGNAL); //send blockSize
   bzero(BUFFER, BUFFSIZE);
   std::string str;
   if((n = ::read(conndfd, BUFFER, BUFFSIZE)) >= 4)
@@ -170,7 +155,7 @@ void downLoadMD5(int conndfd, std::vector<std::string>& MD5str, std::string argv
   }
 }
 
-void downLoadFileBlock(int conndfd, std::vector<std::string>& MD5str, std::string argv)
+void downLoadFileBlock(int conndfd, std::string argv)
 {
   int n, location=0;
   const int BUFFSIZE = 1024*1024;
@@ -184,10 +169,16 @@ void downLoadFileBlock(int conndfd, std::vector<std::string>& MD5str, std::strin
   Buff.prepend(&bsbe, 4);
   ::send(conndfd, Buff.readAsString().data(), 4+argv.size(), MSG_NOSIGNAL); 
   bzero(BUFFER, BUFFSIZE);
-  std::string str;
   while(true)
   {
+    if(blockMD5Num.size() == MD5str.size())
+    {
+      std::cout << "success" << '\n';
+      return;
+    }
     Buff.readFd(conndfd);
+    
+
     while(Buff.readableBytes() >= 4)
     {
       const void *tmp = Buff.peek();
@@ -196,15 +187,23 @@ void downLoadFileBlock(int conndfd, std::vector<std::string>& MD5str, std::strin
       
       if(Buff.readableBytes() >= 4+36+BlockFileSize)
       {
-        std::cout << BlockFileSize << '\n';
+        //std::cout << BlockFileSize << '\n';
         Buff.retrieve(4);
         std::string FileContent = Buff.readAsBlock(36+BlockFileSize);
         if(getstringMD5(FileContent.substr(36)) == FileContent.substr(0,32))
         {
-          std::cout << "success" << '\n';
-          std::string file = "./File/" + FileContent.substr(0,36);
-          int fd = open(file.data(), O_RDWR|O_CREAT);
-          ::write(fd, FileContent.substr(36).data(), FileContent.substr(36).size());
+          if(lsMD5InFile(FileContent.substr(0,32)))
+          {
+            continue;
+          }
+          else
+          {
+            blockMD5Num.push_back(FileContent.substr(0,32));
+            //std::cout << blockMD5Num.size() << ':' << MD5str.size() << '\n';
+            std::string file = "./" + argv + '/' + FileContent.substr(0,36);
+            int fd = open(file.data(), O_RDWR|O_CREAT);
+            ::write(fd, FileContent.substr(36).data(), FileContent.substr(36).size());
+          }
         }
       }
       else

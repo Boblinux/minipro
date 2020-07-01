@@ -64,8 +64,6 @@ void onConnection(const Reactor::TcpConnectionPtr& conn)
 void onMessage(const Reactor::TcpConnectionPtr& conn,
                Reactor::Buffer* buf)
 {
-  //upLoad(conn, buf);
-  
   if(Operate == sw)
   {
     switchOperate(conn, buf);
